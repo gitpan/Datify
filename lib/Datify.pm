@@ -1,7 +1,7 @@
-use v5.12;
+use v5.14;
 
 package Datify;
-$Datify::VERSION = '0.14.133';
+$Datify::VERSION = '0.14.133.1';
 
 use overload ();
 use warnings;
@@ -683,7 +683,7 @@ Datify - Simple stringification of data.
 
 =head1 VERSION
 
-version 0.14.133
+version 0.14.133.1
 
 =head1 SYNOPSIS
 
