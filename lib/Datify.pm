@@ -1,13 +1,13 @@
 use v5.12;
 
 package Datify;
-$Datify::VERSION = '0.14.132';
+$Datify::VERSION = '0.14.133';
+
 use overload ();
 use warnings;
 
 use Carp            ();#qw(croak);
 use List::Util      ();#qw(reduce sum);
-use List::MoreUtils ();#qw(natatime);
 use Scalar::Util    ();#qw(blessed looks_like_number refaddr);
 use String::Tools   qw(subst);
 
@@ -471,11 +471,11 @@ sub pairify {
                 : %$hash;
         }
     }
-    # Use natatime in order to preserve the order of @_,
+    # Use for loop in order to preserve the order of @_,
     # rather than each %{ { @_ } }, which would mix-up the order.
-    my $iter = List::MoreUtils::natatime 2, @_;
     my @list;
-    while ( my ($k, $v) = $iter->() ) {
+    for ( my $i = 0; $i < @_ - 1; $i += 2 ) {
+        my ( $k, $v ) = @_[ $i, $i + 1 ];
         my $key = $self->keyify($k);
         push @{ $self->{_position} //= [] }, "{$key}";
         my $val = $self->scalarify($v);
@@ -683,7 +683,7 @@ Datify - Simple stringification of data.
 
 =head1 VERSION
 
-version 0.14.132
+version 0.14.133
 
 =head1 SYNOPSIS
 

@@ -1,8 +1,5 @@
 #! /usr/bin/env perl
 
-use v5.12;
-
-use List::MoreUtils 'natatime';
 use Test::More tests => 43;
 
 ok require Datify, 'Required Datify';
@@ -58,14 +55,15 @@ my @specials = (
     #'TODO'          => ???              => 'format',
     '*::STDOUT'     => *STDOUT          => 'glob',
     '{hash => 1}'   => { hash  => 1 }   => 'hash ref',
+    'qr/(?^:\s*)/'  => qr/\s*/          => 'regexp',
     q!bless(*UNKNOWN{IO}, 'IO::File')!
                     => *STDOUT{IO}      => 'IO',
-    'qr/(?^u:\s*)/' => qr/\s*/          => 'regexp',
     "bless({$datify}, 'Datify')"
                     => Datify->new()    => 'object',
 );
-my $iter = natatime(3 => @specials);
-while ( my ($string, $special, $desc) = $iter->() ) {
+
+for ( my $i = 0; $i < @specials - 1; $i += 3 ) {
+    my ( $string, $special, $desc ) = @specials[ $i, $i + 1, $i + 2 ];
     my $str;
 
     $str = Datify->scalarify($special);

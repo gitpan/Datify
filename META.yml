@@ -15,7 +15,6 @@ meta-spec:
 name: Datify
 requires:
   Carp: '0'
-  List::MoreUtils: '0'
   List::Util: '0'
   Scalar::Util: '0'
   String::Tools: '0'
@@ -23,4 +22,4 @@ requires:
   perl: v5.12.0
   strict: '0'
   warnings: '0'
-version: 0.14.132
+version: 0.14.133
