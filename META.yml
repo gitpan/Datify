@@ -18,8 +18,9 @@ requires:
   List::Util: '0'
   Scalar::Util: '0'
   String::Tools: '0'
+  Sub::Name: '0'
   overload: '0'
   perl: v5.14.0
   strict: '0'
   warnings: '0'
-version: 0.14.133.1
+version: 0.14.143

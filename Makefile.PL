@@ -25,6 +25,7 @@ my %WriteMakefileArgs = (
     "List::Util" => 0,
     "Scalar::Util" => 0,
     "String::Tools" => 0,
+    "Sub::Name" => 0,
     "overload" => 0,
     "strict" => 0,
     "warnings" => 0
@@ -32,7 +33,7 @@ my %WriteMakefileArgs = (
   "TEST_REQUIRES" => {
     "Test::More" => 0
   },
-  "VERSION" => "0.14.133.1",
+  "VERSION" => "0.14.143",
   "test" => {
     "TESTS" => "t/*.t"
   }
@@ -44,6 +45,7 @@ my %FallbackPrereqs = (
   "List::Util" => 0,
   "Scalar::Util" => 0,
   "String::Tools" => 0,
+  "Sub::Name" => 0,
   "Test::More" => 0,
   "overload" => 0,
   "strict" => 0,

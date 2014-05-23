@@ -1,7 +1,7 @@
 use v5.14;
 
 package Datify;
-$Datify::VERSION = '0.14.133.1';
+$Datify::VERSION = '0.14.143';
 
 use overload ();
 use warnings;
@@ -10,6 +10,7 @@ use Carp            ();#qw(croak);
 use List::Util      ();#qw(reduce sum);
 use Scalar::Util    ();#qw(blessed looks_like_number refaddr);
 use String::Tools   qw(subst);
+use Sub::Name       ();#qw(subname);
 
 my %SETTINGS = (
     # Var options
@@ -94,12 +95,16 @@ my %SETTINGS = (
     list_sep    => ', ',
 
     # Object options
-    object  => 'bless($data, $class_str)',
-    #object  => '$class($data)',
-    io      => '*UNKNOWN{IO}',
+    overloads => [ '""', '0+' ],
+    object    => 'bless($data, $class_str)',
+    #object    => '$class($data)',
+    io        => '*UNKNOWN{IO}',
 
     # Code options
     code    => 'sub {...}',
+
+    # Format options
+    format  => "format UNKNOWN =\n.\n",
 );
 
 sub keysort($$) {
@@ -113,9 +118,9 @@ sub keysort($$) {
 
 sub add_handler {
     no strict 'refs';
-    my $pkg   = shift || __PACKAGE__; $pkg = ref $pkg || $pkg;
-    my $name  = _nameify(shift);
-    *{ $name } = Sub::Name::subname $name => shift;
+    my $pkg  = shift || __PACKAGE__; $pkg = ref $pkg || $pkg;
+    my $name = _nameify(shift);
+    *{$name} = Sub::Name::subname $name => shift;
 }
 
 # Constructor
@@ -154,24 +159,43 @@ sub get {
     else                  { return @{$self}{@_} }
 }
 
+# Name can be any of the following:
+# * package name (optional) followed by:
+#   * normal word
+#   * ::
+# * Perl special variable:
+#   * numbers
+#   * punctuation
+#   * control character
+#   * control word
 my $sigils     = '[\@\%\$]';
-my $pkg        = '[[:alpha:]]\w*(?:\::\w+)*';
+my $package    = '[[:alpha:]]\w*(?:\::\w+)*';
 my $word       = '[[:alpha:]_]\w*';
 my $digits     = '\d+';
-my $cntrl      = '(?:[[:cntrl:]]|\^[[:upper:]])';
 my $punct      = '[[:punct:]]';
-my $cntrl_word = "\\{$cntrl$word\\}";
-my ($name_re)  = map qr/^$_$/, join('',
-    "$sigils?",
-    "(?:$pkg\::)?",
-    '(?:' . join('|', $word, $digits, $cntrl, $punct, $cntrl_word ) . ')'
-);
+my $cntrl      = '(?:[[:cntrl:]]|\^[[:upper:]])';
+my $cntrl_word = "$cntrl$word";
+my $varname
+    = '(?:' . join( '|', $word, $digits, $punct, $cntrl, $cntrl_word ) . ')';
+$varname .= "|\\{\\s*$varname\\s*\\}";
+$varname  = "(?:$varname)";
+
 sub varify {
-    my $self  = shift; $self = $self->new() unless ref $self;
-    my $name  = shift if ( ! ref $_[0] && $_[0] =~ $name_re );
+    my $self = shift; $self = $self->new() unless ref $self;
+    my ($sigil, $name);
+    if ( defined $_[0] && !ref $_[0] ) {
+        ( $sigil, $name )
+            = $_[0] =~ /^($sigils)?((?:$package\::)?$varname|$package\::)$/;
+        shift if defined $name && length $name;
+    }
     my $value = 1 == @_ ? shift : \@_;
 
-    if ( ! defined $name ) {
+    if ( defined $name && length $name ) {
+        if ( $name =~ /[[:cntrl:]]/ ) {
+            $name =~ s/([[:cntrl:]])/'^' . chr(64 + ord($1) % 64)/e;
+            $name =~ s/($cntrl_word)(?!\s*\})/\{$1\}/;
+        }
+    } else {
         if ( my $ref = ref $value ) {
             $name = _nameify($ref);
         } else {
@@ -180,14 +204,13 @@ sub varify {
     }
     Carp::croak "Missing name" unless ( defined $name && length $name );
 
-    my $sigil;
-    unless ( ($sigil) = $name =~ /^($sigils)/ ) {
+    unless ($sigil) {
         my $ref = ref $value;
         if    ( $ref eq 'ARRAY' ) { $sigil = '@'; }
         elsif ( $ref eq 'HASH' )  { $sigil = '%'; }
         else                      { $sigil = '$'; }
-        $name = $sigil . $name;
     }
+    $name = $sigil . $name;
     $self = $self->set( name => $name );
 
     if    ( $sigil eq '$' ) { $value = $self->scalarify($value); }
@@ -201,7 +224,7 @@ sub varify {
 
     $value = subst( $self->{assign}, var => $name, value => $value );
     if ( $self->{beautify} ) {
-        return $self->{beautify}->( $value );
+        return $self->{beautify}->($value);
     } else {
         return $value;
     }
@@ -491,20 +514,30 @@ sub hashify  {
 }
 
 # Objects
+sub overloaded {
+    my $self   = shift; $self = $self->new() unless ref $self;
+    my $object = shift;
+
+    return unless overload::Overloaded($object);
+
+    foreach my $overload ( @{ $self->{overloads} } ) {
+        if ( my $method = overload::Method( $object => $overload ) ) {
+            return $method;
+        }
+    }
+    return;
+}
+
 sub objectify {
     my $self   = shift; $self = $self->new() unless ref $self;
     my $object = shift;
 
     return $self->scalarify($object)
-        unless my $class = Scalar::Util::blessed $object;
+        unless defined( my $class = Scalar::Util::blessed $object );
 
     my $data;
-    if (
-        overload::Overloaded($object)
-        && ( my $meth = overload::Method( $object => '""' )
-            ||          overload::Method( $object => '0+' ) )
-    ) {
-        $data = $self->scalarify( $object->$meth() );
+    if ( my $method = $self->overloaded($object) ) {
+        $data = $self->scalarify( $object->$method() );
     } else {
         $data = Scalar::Util::reftype $object;
 
@@ -535,6 +568,21 @@ sub objectify {
 # Objects: IO
 sub ioify {
     my $self = shift; $self = $self->new() unless ref $self;
+    my $io   = shift;
+    foreach my $ioe (qw(IN OUT ERR)) {
+        no strict 'refs';
+        if ( *{"main::STD$ioe"}{IO} == $io ) {
+            return "*STD$ioe\{IO}";
+        }
+    }
+    # TODO
+    #while ( my ( $name, $glob ) = each %main:: ) {
+    #    no strict 'refs';
+    #    if ( defined( *{$glob}{IO} ) && *{$glob}{IO} == $io ) {
+    #        keys %main::; # We're done, so reset each()
+    #        return "*$name\{IO}";
+    #    }
+    #}
     return $self->{io};
 }
 
@@ -552,13 +600,18 @@ sub refify    {
 
 sub formatify {
     my $self = shift; $self = $self->new() unless ref $self;
-    Carp::croak "Unhandled type: ", ref shift;
+    #Carp::croak "Unhandled type: ", ref shift;
+    return $self->{format};
 }
 
 sub globify   {
     my $self = shift; $self = $self->new() unless ref $self;
-    local $_ = shift;
-    ( my $name = "$_" ) =~ s/^\*main\::/*::/;
+    my $name = '' . shift;
+    if ( $name =~ /^\*$package\::(?:$word|$digits)?$/ ) {
+        $name =~ s/^\*main::/*::/;
+    } else {
+        $name =~ s/^\*($package\::.+)/'*{' . $self->stringify($1) . '}'/e;
+    }
     return $name;
 }
 
@@ -683,7 +736,7 @@ Datify - Simple stringification of data.
 
 =head1 VERSION
 
-version 0.14.133.1
+version 0.14.143
 
 =head1 SYNOPSIS
 
@@ -791,7 +844,7 @@ does not have native boolean values, these are placeholders.
 
 What to use as the default quote character.
 If set to a false value, then use the best guess.
-See L<stringify> below.
+See L</stringify> below.
 
 =item I<quote1>  => B<"'">
 
@@ -816,7 +869,7 @@ TODO
 =item I<longstr> => B<1_000>
 
 How long a string needs to be before it's considered long.
-See L<stringify> below.
+See L</stringify> below.
 Change to a false value to mean no string is long.
 Change to a negative value to mean every string is long.
 
@@ -929,9 +982,14 @@ What character to use to seperate sets of numbers.
 
 =over
 
-=item I<object>  => B<'bless($data, $class_str)'>
+=item I<overloads>  => B<[ '""', '0+' ]>
 
-=item I<io>      => B<'*UNKNOWN{IO}'>
+The list of overloads to check for before deconstructing the object.
+See L<overload> for more information on overloading.
+
+=item I<object>     => B<'bless($data, $class_str)'>
+
+=item I<io>         => B<'*UNKNOWN{IO}'>
 
 =back
 
@@ -940,6 +998,14 @@ What character to use to seperate sets of numbers.
 =over
 
 =item I<code>    => B<'sub {...}'>
+
+=back
+
+=item Formatify options
+
+=over
+
+=item I<format>  => B<"format UNKNOWN =\n.\n">
 
 =back
 
@@ -955,7 +1021,7 @@ Create a C<Datify> object with the following options.
 
 =item C<< set( name => value, name => value, ... ) >>
 
-Change the L<Options> settings.
+Change the L</Options> settings.
 When called as a class method, changes default options.
 When called as an object method, changes the settings and returns a
 new object.
