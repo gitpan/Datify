@@ -1,7 +1,36 @@
 use v5.14;
 
 package Datify;
-$Datify::VERSION = '0.14.143';
+$Datify::VERSION = '0.14.150';
+
+=head1 NAME
+
+Datify - Simple stringification of data.
+
+=head1 VERSION
+
+version 0.14.150
+
+=head1 SYNOPSIS
+
+ use Datify;
+
+ my $datify = Datify->new( ... );   # See Options below
+ $datify = $datify->set( ... );     # See Options below
+
+ print $datify->varify( data => [...] ), "\n";  # "@data = (...);\n"
+
+ # Or
+
+ print Datify->varify( data => [...] ), "\n";
+ # "@data = (...);\n"
+
+=head1 DESCRIPTION
+
+C<Datify> is very similar to L<Data::Dumper>, except that it's
+easier to use, has better formatting and options, and is invented here.
+
+=cut
 
 use overload ();
 use warnings;
@@ -12,7 +41,15 @@ use Scalar::Util    ();#qw(blessed looks_like_number refaddr);
 use String::Tools   qw(subst);
 use Sub::Name       ();#qw(subname);
 
+=head2 Options
+
+The following options can be set as part of C<new> or with C<set>.
+The default values are listed below.
+
+=cut
+
 my %SETTINGS = (
+
     # Var options
     name        => '$self',
     assign      => '$var = $value;',
@@ -105,16 +142,345 @@ my %SETTINGS = (
 
     # Format options
     format  => "format UNKNOWN =\n.\n",
+
 );
 
-sub keysort($$) {
-    my $n0 = Scalar::Util::looks_like_number($_[0]);
-    my $n1 = Scalar::Util::looks_like_number($_[1]);
-    if ( $n0 && $n1 ) { return $_[0] <=> $_[1] }
-    elsif ( $n0 )     { return -1 }
-    elsif ( $n1 )     { return +1 }
-    else              { return $_[0] cmp $_[1] }
+
+=over
+
+=item Varify options
+
+=over
+
+=item I<name>       => B<'$self'>
+
+The neame of the default variable.
+This is also set as the first parameter to C<varify>.
+
+=item I<assign>     => B<'$var = $value;'>
+
+What an assignment statement should look like.  If the generated code
+is to be run under C<use strict;>, then you may want to change this to
+C<'my $var = $value;'>.
+
+=item I<list>       => B<'($_)'>
+
+The delimiters for a list.
+
+=item I<beautify>   => B<undef>
+
+Set this to a C<CODE> reference that you would like to use to beautify
+the code.  It should accept the code as the first parameter, process it,
+and return the code after all the beauty modifications have been completed.
+
+An example:
+
+ use Datify;
+ use Perl::Tidy;
+
+ sub beautify {
+     my $source = shift;
+
+     my ($dest, stderr);
+     Perl::Tidy::perltidy(
+         argv => [ qw(
+             --noprofile
+             --nostandard-output
+             --standard-error-output
+             --nopass-version-line
+         ) ],
+         source      => \$source,
+         destination => \$dest,
+         stderr      => \$stderr,
+         errorfile   => \$stderr,
+     ) && die $stderr;
+
+     return $dest;
+ }
+
+ Datify->set( beautify => \&beautify );
+
+ say Datify->varify( var => $var );
+
+=back
+
+
+
+=item Undefify options
+
+=over
+
+=item I<null> => B<'undef'>
+
+What to use as the null value.
+
+=back
+
+
+
+=item Booleanify options
+
+=over
+
+=item I<true>    => B<1>
+
+=item I<false>   => B<"''">
+
+What to use as the values for C<true> and C<false>, respectively.
+Since Perl does not have native boolean values, these are placeholders.
+
+=back
+
+
+
+=item Stringify options
+
+=over
+
+=item I<quote>   => B<undef>
+
+What to use as the default quote character.
+If set to a false value, then use the best guess.
+See L</stringify( value )>.
+
+=item I<quote1>  => B<"'">
+
+The default single-quoting character.
+
+=item I<quote2>  => B<'"'>
+
+The default double-quoting character.
+
+=item I<q1>      => B<'q'>
+
+The special single-quoting character starter.
+
+=item I<q2>      => B<'qq'>
+
+The special double-quoting character starter.
+
+=item I<sigils>  => B<'$@'>
+
+The characters in a double quoted sting that need to be quoted,
+or they may be interpreted as variable interpolation.
+
+=item I<longstr> => B<1_000>
+
+How long a string needs to be before it's considered long.
+See L</stringify( value )>.
+Change to a false value to mean no string is long.
+Change to a negative value to mean every string is long.
+
+=item I<encode>  => B<<
+{
+0 => '\0',
+7 => '\a',
+9 => '\t',
+10 => '\n',
+12 => '\f',
+13 => '\r',
+27 => '\e',
+255 => '\x%02x',
+65535 => '\x{%04x}'
 }
+>>
+
+How to encode characters that need encoding.
+
+=item I<qpairs>  => B<< [ qw\ () <> [] {} \ ] >>
+
+=item I<qquotes> => B<[ qw\ ! # % & * + , - . / : ; = ? ^ | ~ $ @ ` \ ]>
+
+When determining the quote character to use, go through these lists to see
+which character would work best.
+
+=back
+
+
+
+=item LValueify options
+
+=over
+
+=item I<lvalue>  => B<'substr($lvalue, 0)'>
+
+How to generate a LValue.
+
+=back
+
+
+
+=item VStringify options
+
+=over
+
+=item I<vformat> => B<'v%vd'>
+
+=item I<vsep>    => B<undef>
+
+The formatting string to use.  If I<vsep> is set, then I<vformat> should use
+the C<*> format to inidicate what I<vsep> will be:
+C<< vformat => 'v%*vd', vsep => '.' >>.
+
+=back
+
+
+
+=item Numify options
+
+=over
+
+=item I<num_sep> => B<'_'>
+
+What character to use to seperate sets of numbers.
+
+=back
+
+
+
+=item Refify options
+
+=over
+
+=item I<reference>   => B<'\\$_'>
+
+The representation of a reference.
+
+=item I<dereference> => B<< '$referent->$place' >>
+
+The representation of dereferencing.
+
+=item I<nested>      => B<'$referent$place'>
+
+The representation of dereferencing a nested reference.
+
+=back
+
+
+
+=item Regexpify options
+
+=over
+
+=item I<quote3>  => B<'/'>
+
+=item I<q3>      => B<'qr'>
+
+=back
+
+
+
+=item Hashify options
+
+=over
+
+=item I<hash_ref>    => B<'{$_}'>
+
+The representation of a hash reference.
+
+=item I<pair>        => B<< '$key => $value' >>
+
+The representation of a pair.
+
+=item I<keysort>     => B<\&Datify::keysort>
+
+How to sort the keys in a hash.  This has a performance hit,
+but it makes the output much more readable.  See the description of
+L</keysort> below.
+
+=item I<keywords>    => B<[qw(undef)]>
+
+Any keywords that should be quoted, even though they may not need to be.
+
+=back
+
+
+
+=item Arrayify options
+
+=over
+
+=item I<array_ref>   => B<'[$_]'>
+
+The representation of an array reference.
+
+=item I<list_sep>    => B<', '>
+
+The representation of the separator between list elements.
+
+=back
+
+
+
+=item Objectify options
+
+=over
+
+=item I<overloads>  => B<[ '""', '0+' ]>
+
+The list of overloads to check for before deconstructing the object.
+See L<overload> for more information on overloading.
+
+=item I<object>     => B<'bless($data, $class_str)'>
+
+The representation of a object.  Other possibilities include
+C<'$class($data)'> or C<'$class->new($data)'>.
+
+=item I<io>         => B<'*UNKNOWN{IO}'>
+
+The representation of unknown IO objects.
+
+=back
+
+
+
+=item Codeify options
+
+=over
+
+=item I<code>    => B<'sub {...}'>
+
+The representation of a code reference.  This module does not currently
+support decompiling code to make a complete representation.
+
+=back
+
+
+
+=item Formatify options
+
+=over
+
+=item I<format>  => B<"format UNKNOWN =\n.\n">
+
+The representation of a format.  This module does not currently support
+showing the acutal repreenstation.
+
+=back
+
+=back
+
+
+
+=head2 Methods
+
+=over
+
+=item C<< add_handler( 'Class::Name' => \&code_ref ) >>
+
+Add a handler to handle an object of type C<'Class::Name'>.  C<\&code_ref>
+should take two parameters, a reference to Datify, and the object to be
+Datify'ed.  It should return a representation of the object.
+
+ # Set URI's to stringify as "URI->new('http://example.com')"
+ # instead of "bless(\'http://example.com', 'URI')"
+ Datify->add_handler( 'URI' => sub {
+     my ( $datify, $uri ) = @_;
+     my $s = $datify->stringify("$uri");
+     return "URI->new($s)";
+ } );
+
+=cut
 
 sub add_handler {
     no strict 'refs';
@@ -123,34 +489,81 @@ sub add_handler {
     *{$name} = Sub::Name::subname $name => shift;
 }
 
-# Constructor
-sub new {
-    my $class = shift || __PACKAGE__; $class = ref $class || $class;
-    my $self  = { %SETTINGS, @_ };
 
-    return bless $self, $class;
+
+### Constructor ###
+
+=item C<< new( name => value, name => value, ... ) >>
+
+Create a C<Datify> object with the following options.
+
+=cut
+
+sub new {
+    my $self = shift || __PACKAGE__;
+    if ( my $class = ref $self ) {
+        return bless { %$self,    @_ }, $class;
+    } else {
+        return bless { %SETTINGS, @_ }, $self;
+    }
 }
 
-# Setter
+
+
+### Setter ###
+
+=item C<< set( name => value, name => value, ... ) >>
+
+Change the L</Options> settings.
+When called as a class method, changes default options.
+When called as an object method, changes the settings and returns a
+new object.
+
+B<NOTE:> When called as a object method, this returns a new instance
+with the values set, so you will need to capture the return if you'd like to
+persist the change:
+
+ $datify = $datify->set( ... );
+
+=cut
+
 sub set {
-    my $self = my $class = shift;
-    if ( ref $self ) {
+    my $self = shift;
+    my %set  = @_;
+
+    my $return;
+    my $class;
+    if ( $class = ref $self ) {
         # Make a copy
-        $self = bless { %$self }, $class = ref $self;
+        $self   = bless { %$self }, $class;
+        $return = 0;
     } else {
-        $self = \%SETTINGS;
+        $class  = $self;
+        $self   = \%SETTINGS;
+        $return = 1;
     }
 
-    my %set = @_;
     delete $self->{keyword_set} if ( $set{keywords} );
     delete $self->{"tr$_"} for grep { exists $set{"quote$_"} } ( 1, 2, 3 );
 
     %$self = ( %$self, %set );
 
-    return 'HASH' eq ref $self ? $class : $self;
+    return ( $self, $class )[$return];
 }
 
-# Accessor
+
+
+### Accessor ###
+
+=item C<get( name, name, ... )>
+
+Get one or more existing values for one or more settings.
+If passed no names, returns all parameters and values.
+
+Can be called as a class method or an object method.
+
+=cut
+
 sub get {
     my $self = shift; $self = \%SETTINGS unless ref $self;
     my $count = scalar @_;
@@ -158,6 +571,8 @@ sub get {
     elsif ( $count == 1 ) { return $self->{ +shift } }
     else                  { return @{$self}{@_} }
 }
+
+
 
 # Name can be any of the following:
 # * package name (optional) followed by:
@@ -168,7 +583,7 @@ sub get {
 #   * punctuation
 #   * control character
 #   * control word
-my $sigils     = '[\@\%\$]';
+my $sigils     = '[\\x24\\x25\\x40]'; # $%@
 my $package    = '[[:alpha:]]\w*(?:\::\w+)*';
 my $word       = '[[:alpha:]_]\w*';
 my $digits     = '\d+';
@@ -179,6 +594,44 @@ my $varname
     = '(?:' . join( '|', $word, $digits, $punct, $cntrl, $cntrl_word ) . ')';
 $varname .= "|\\{\\s*$varname\\s*\\}";
 $varname  = "(?:$varname)";
+
+=item C<< varify( name => value, value, ... ) >>
+
+Returns an assignment statement for the values.  If C<name> does not begin
+with a sigil (C<$>, C<@>, or C<%>), will determine which sigil to use based
+on C<values>.
+
+Some examples:
+
+Common case, determine the type and add the correct sigil to 'foo'.
+
+ Datify->varify(   foo  => $foo )
+
+Specify the type.
+
+ Datify->varify( '$foo' => $foo )
+
+Handle a list: C<@foo = (1, 2, 3);>
+
+ Datify->varify( '@foo' =>   1, 2, 3   )
+ Datify->varify( '@foo' => [ 1, 2, 3 ] )
+ Datify->varify(   foo  =>   1, 2, 3   )
+ Datify->varify(   foo  => [ 1, 2, 3 ] )
+
+Handle a hash: C<< %foo = (a => 1, b => 2, c => 3); >>
+(B<Note>: Order may be rearranged.)
+
+ Datify->varify( '%foo' =>   a => 1, b => 2, c => 3   )
+ Datify->varify( '%foo' => { a => 1, b => 2, c => 3 } )
+ Datify->varify(   foo  => { a => 1, b => 2, c => 3 } )
+
+Keep in mind that without proper hints, this would be interpretted as a list,
+not a hash:
+
+ Datify->varify(   foo  =>   a => 1, b => 2, c => 3   )
+ # "@foo = ('a', 1, 'b', 2, 'c', 3);"
+
+=cut
 
 sub varify {
     my $self = shift; $self = $self->new() unless ref $self;
@@ -230,13 +683,32 @@ sub varify {
     }
 }
 
-# Scalar: undef
+
+
+### Scalar: undef ###
+
+=item C<undefify>
+
+Returns the string that should be used for an undef value.
+
+=cut
+
 sub undefify {
     my $self = shift; $self = $self->new() unless ref $self;
     return $self->{null};
 }
 
-# Scalar: boolean
+
+
+### Scalar: boolean ###
+
+=item C<booleanify( value )>
+
+Returns the string that represents the C<true> or C<false> interpretation
+of value.
+
+=cut
+
 sub booleanify {
     my $self = shift; $self = $self->new() unless ref $self;
     local $_ = shift;
@@ -244,7 +716,17 @@ sub booleanify {
     return $_ ? $self->{true} : $self->{false};
 }
 
-# Scalar: single-quoted string
+
+
+### Scalar: single-quoted string ###
+
+=item C<stringify1( value I<, delimiters> )>
+
+Returns the string that represents value as a single-quoted string.
+The delimiters parameter is optional.
+
+=cut
+
 sub stringify1 {
     my $self = shift; $self = $self->new() unless ref $self;
     local $_ = shift;
@@ -264,14 +746,26 @@ sub stringify1 {
     return sprintf '%s%s%s', $open, $_, $close;
 }
 
-# Scalar: double-quoted string
+
+
+### Scalar: double-quoted string ###
+
+=item C<stringify2( value I<, delimiters> )>
+
+Returns the string that represents value as a double-quoted string.
+The delimiters parameter is optional.
+
+=cut
+
 sub stringify2 {
     my $self = shift; $self = $self->new() unless ref $self;
     local $_ = shift;
     my ( $open, $close ) = $self->_get_delim( shift // $self->{quote2} );
 
-    # quote char(s), dollar-sign, at-sign, and backslash.
-    s/([$open$close\x24\x40\x5c])/\\$1/g;
+    my $sigils = $self->{sigils} =~ s/(.)/$self->_encode($1)/egsr;
+
+    # quote char(s), sigils, and backslash.
+    s/([$open$close$sigils\x5c])/\\$1/g;
     s/([[:cntrl:]])/$self->_encode($1)/eg;
 
     if ( $self->{quote2} ne $open ) {
@@ -285,7 +779,21 @@ sub stringify2 {
     return sprintf '%s%s%s', $open, $_, $close;
 }
 
-# Scalar: string
+
+
+### Scalar: string ###
+
+=item C<stringify( value )>
+
+Returns the string the represents value.  It will be a double-quoted string
+if it is longer than the C<longstr> option or contains control characters.
+It will be a single-quoted string unless there are single-quotes within the
+string, then it will be a double-quoted string, unless it also contains
+double-quotes within the string, then it will attempt to find the best quote
+character.
+
+=cut
+
 sub stringify {
     my $self = shift; $self = $self->new() unless ref $self;
     local $_ = shift;
@@ -319,8 +827,20 @@ sub stringify {
     return $self->stringify1( $_, $self->_find_q($_) );
 }
 
-# Scalar: number
+
+
+### Scalar: number ###
 # Adapted from Perl FAQ "How can I output my numbers with commas added?"
+
+=item C<numify( value )>
+
+Returns value with seperators between the hundreds and thousands,
+hundred-thousands and millions, etc.  Similarly for the fractional parts.
+
+ Datify->numify(1234.5678901) # "1_234.56_789_01"
+
+=cut
+
 sub numify {
     my $self = shift; $self = $self->new() unless ref $self;
     return $_[0] unless my $sep = $self->{num_sep};
@@ -336,7 +856,21 @@ sub numify {
     return $_;
 }
 
-# Scalar
+
+
+### Scalar ###
+
+=item C<scalarify( value )>
+
+Returns value as a scalar.  If value is not a reference, performs some magic
+to correctly print vstrings and numbers, otherwise assumes it's a string.
+If value is a reference, hands off to the correct function to create
+the string.
+
+Handles reference loops.
+
+=cut
+
 sub scalarify {
     my $self = shift; $self = $self->new() unless ref $self;
     my $s = shift;
@@ -390,12 +924,27 @@ sub scalarify {
     }
 }
 
+
+
+### Scalar: LValue ###
+
+=item C<lvalueify( value )>
+
+=cut
+
 sub lvalueify {
     my $self = shift; $self = $self->new() unless ref $self;
     return subst( $self->{lvalue}, lvalue => $self->stringify(shift) );
 }
 
-# Scalar: VString
+
+
+### Scalar: VString ###
+
+=item C<vstringify( value )>
+
+=cut
+
 sub vstringify {
     my $self = shift; $self = $self->new() unless ref $self;
     if ( defined $self->{vsep} ) {
@@ -405,14 +954,22 @@ sub vstringify {
     }
 }
 
-# Regexp
+
+
+### Regexp ###
+
+=item C<regexpify( value, delimiters )>
+
+=cut
+
 sub regexpify {
     my $self = shift; $self = $self->new() unless ref $self;
     local $_ = shift;
     $self->{tr3} ||= "tr\\$self->{quote3}\\$self->{quote3}\\";
     my $quoter = eval $self->{tr3} // die $@;
     my ( $open, $close )
-        = $self->_get_delim( shift // $quoter ? $self->_find_q($_) : $self->{quote3} );
+        = $self->_get_delim(
+            shift // $quoter ? $self->_find_q($_) : $self->{quote3} );
 
     # Everything but the quotes should be escaped already.
     s/([$open$close])/\\$1/g;
@@ -428,7 +985,18 @@ sub regexpify {
     return sprintf '%s%s%s', $open, $_, $close;
 }
 
-# List/Array
+
+
+### List/Array ###
+
+=item C<listify( value, value, ... )>
+
+Returns value(s) as a list.
+
+ Datify->listify( 1, 2, 3 ) # '1, 2, 3'
+
+=cut
+
 sub listify {
     my $self = shift; $self = $self->new() unless ref $self;
     if (1 == @_) {
@@ -451,12 +1019,32 @@ sub listify {
     return join($self->{list_sep}, @values);
 }
 
+
+
+=item C<arrayify( value, value, ... )>
+
+Returns value(s) as an array.
+
+ Datify->arrayify( 1, 2, 3 ) # '[1, 2, 3]'
+
+=cut
+
 sub arrayify {
     my $self = shift; $self = $self->new() unless ref $self;
     return subst( $self->{array_ref}, $self->listify(@_) );
 }
 
-# Hash
+
+
+### Hash ###
+
+=item C<keyify( value )>
+
+Returns value as a key.  If value does not need to be quoted, it will not be.
+Verifies that value is not a keyword.
+
+=cut
+
 sub keyify {
     my $self = shift; $self = $self->new() unless ref $self;
     local $_ = shift;
@@ -477,6 +1065,33 @@ sub keyify {
     }
     return $self->stringify($_);
 }
+
+
+
+=item C<keysort( $a, $b )>
+
+Not a method, but a sorting routine that sort numbers before strings.
+
+=cut
+
+sub keysort($$) {
+    my $n0 = Scalar::Util::looks_like_number($_[0]);
+    my $n1 = Scalar::Util::looks_like_number($_[1]);
+    if ( $n0 && $n1 ) { return $_[0] <=> $_[1] }
+    elsif ( $n0 )     { return -1 }
+    elsif ( $n1 )     { return +1 }
+    else              { return $_[0] cmp $_[1] }
+}
+
+
+
+=item C<pairify( value, value, ... )>
+
+Returns value(s) as a pair.
+
+ Datify->pairify( a => 1, b => 2 ) # 'a => 1, b => 2'
+
+=cut
 
 sub pairify {
     my $self = shift; $self = $self->new() unless ref $self;
@@ -508,12 +1123,32 @@ sub pairify {
     return join($self->{list_sep}, @list);
 }
 
+
+
+=item C<hashify( value, value, ... )>
+
+Returns value(s) as a hash.
+
+ Datify->hashify( a => 1, b => 2 ) # '{a => 1, b => 2}'
+
+=cut
+
 sub hashify  {
     my $self = shift; $self = $self->new() unless ref $self;
     return subst( $self->{hash_ref}, $self->pairify(@_) );
 }
 
-# Objects
+
+
+### Objects ###
+
+=item C<overloaded( $object )>
+
+Returns the first method from the C<overloads> list that $object
+has overloaded.  If nothing is overloaded, then return nothing.
+
+=cut
+
 sub overloaded {
     my $self   = shift; $self = $self->new() unless ref $self;
     my $object = shift;
@@ -528,6 +1163,16 @@ sub overloaded {
     return;
 }
 
+
+
+=item C<objectify( value )>
+
+Returns value as an object.
+
+ Datify->objectify( $object ) # "bless({}, 'Object')"
+
+=cut
+
 sub objectify {
     my $self   = shift; $self = $self->new() unless ref $self;
     my $object = shift;
@@ -537,7 +1182,7 @@ sub objectify {
 
     my $data;
     if ( my $method = $self->overloaded($object) ) {
-        $data = $self->scalarify( $object->$method() );
+        $data = $self->scalarify( \$object->$method() );
     } else {
         $data = Scalar::Util::reftype $object;
 
@@ -547,7 +1192,7 @@ sub objectify {
         if    ( $data eq 'ARRAY' )  { $data = $self->arrayify( [@$object] ) }
         elsif ( $data eq 'CODE' )   { $data = $self->codeify(    $object  ) }
         elsif ( $data eq 'FORMAT' ) { $data = $self->formatify(  $object  ) }
-        elsif ( $data eq 'GLOB' )   { $data = $self->refify(     $object  ) }
+        elsif ( $data eq 'GLOB' )   { $data = $self->globify(    $object  ) }
         elsif ( $data eq 'HASH' )   { $data = $self->hashify(  {%$object} ) }
         elsif ( $data eq 'IO' )     { $data = $self->ioify(      $object  ) }
         elsif ( $data eq 'REF' )    { $data = $self->refify(     $object  ) }
@@ -565,7 +1210,17 @@ sub objectify {
     );
 }
 
-# Objects: IO
+
+
+### Objects: IO ###
+
+=item C<ioify( value )>
+
+Returns a representation of value that is accurate if $io is STDIN, STDOUT,
+or STDERR.  Otherwise, returns the C<io> setting.
+
+=cut
+
 sub ioify {
     my $self = shift; $self = $self->new() unless ref $self;
     my $io   = shift;
@@ -586,23 +1241,60 @@ sub ioify {
     return $self->{io};
 }
 
-# Other
+
+
+### Other ###
+
+=item C<codeify( value )>
+
+Returns a subroutine definition that is not likely to encode value.
+
+ Datify->codeify( \&subroutine ) # 'sub {...}'
+
+=cut
+
 sub codeify   {
     my $self = shift; $self = $self->new() unless ref $self;
     return $self->{code};
 }
 
+
+
+=item C<refify( value )>
+
+Returns value as reference.
+
+=cut
+
 sub refify    {
     my $self = shift; $self = $self->new() unless ref $self;
     local $_ = shift;
-    return subst( $self->{reference}, $self->scalarify($$_) );
+    $_ = $$_ if ref;
+    return subst( $self->{reference}, $self->scalarify($_) );
 }
+
+
+
+=item C<formatify( value )>
+
+Returns a value that is not completely unlike value.
+
+=cut
 
 sub formatify {
     my $self = shift; $self = $self->new() unless ref $self;
     #Carp::croak "Unhandled type: ", ref shift;
     return $self->{format};
 }
+
+
+
+=item C<globify( value )>
+
+Returns a representation of value.
+For normal values, remove the leading C<main::>.
+
+=cut
 
 sub globify   {
     my $self = shift; $self = $self->new() unless ref $self;
@@ -614,6 +1306,10 @@ sub globify   {
     }
     return $name;
 }
+
+=back
+
+=cut
 
 ### Internal ###
 ### Do not use these methods outside of this package,
@@ -730,454 +1426,6 @@ sub _cache {
 
 __DATA__
 
-=head1 NAME
-
-Datify - Simple stringification of data.
-
-=head1 VERSION
-
-version 0.14.143
-
-=head1 SYNOPSIS
-
- use Datify;
-
- my $datify = Datify->new( ... );   # See Options below
- $datify = $datify->set( ... );     # See Options below
-
- print $datify->varify( data => [...] ), "\n";  # "@data = (...);\n"
-
- # Or
-
- print Datify->varify( data => [...] ), "\n";
- # "@data = (...);\n"
-
-=head1 DESCRIPTION
-
-C<Datify> is very similar to L<Data::Dumper>, except that it's
-easier to use, has better formatting and options, and is invented here.
-
-=head2 Options
-
-The following options can be set as part of C<new> or with C<set>.
-The default values are listed below.
-
-=over
-
-=item Varify options
-
-=over
-
-=item I<name>       => B<'$self'>
-
-The neame of the default variable.
-This is also set as the first parameter to C<varify>.
-
-=item I<assign>     => B<'$var = $value;'>
-
-What an assignment statement should look like.  If the generated code
-is to be run under C<use strict;>, then you may want to change this to
-C<'my $var = $value;'>.
-
-=item I<list>       => B<'($_)'>
-
-The delimiters for a list.
-
-=item I<beautify>   => B<undef>
-
-Set this to a sub reference that you would like to use to beautify the code.
-It should accept the code as the first parameter, process it, and return
-the code after all the beauty modifications have been completed.
-
-An example:
-
- use Datify;
- use Perl::Tidy;
-
- sub beautify {
-     my $source = shift;
-
-     Perl::Tidy::perltidy(
-         source      => \$source,
-         destination => \my $dest,
-         stderr      => \my $stderr,
-         errorfile   => \$stderr,
-     ) && die $stderr;
-
-     return $dest;
- }
-
- Datify->set( beautify => \&beautify );
-
- say Datify->varify( var => $var );
-
-=back
-
-=item Undefify options
-
-=over
-
-=item I<null> => B<'undef'>
-
-What to use as the null value.
-
-=back
-
-=item Booleanify options
-
-=over
-
-=item I<true>    => B<1>
-
-=item I<false>   => B<"''">
-
-What to use as the values for C<true> and C<false>, respectively.  Since Perl
-does not have native boolean values, these are placeholders.
-
-=back
-
-=item Stringify options
-
-=over
-
-=item I<quote>   => B<undef>
-
-What to use as the default quote character.
-If set to a false value, then use the best guess.
-See L</stringify> below.
-
-=item I<quote1>  => B<"'">
-
-The default single-quoting character.
-
-=item I<quote2>  => B<'"'>
-
-The default double-quoting character.
-
-=item I<q1>      => B<'q'>
-
-The special single-quoting character starter.
-
-=item I<q2>      => B<'qq'>
-
-The special double-quoting character starter.
-
-=item I<sigils>  => B<'$@'>
-
-TODO
-
-=item I<longstr> => B<1_000>
-
-How long a string needs to be before it's considered long.
-See L</stringify> below.
-Change to a false value to mean no string is long.
-Change to a negative value to mean every string is long.
-
-=item I<encode>  => B<<
-{
-0 => '\0',
-7 => '\a',
-9 => '\t',
-10 => '\n',
-12 => '\f',
-13 => '\r',
-27 => '\e',
-255 => '\x%02x',
-65535 => '\x{%04x}'
-}
->>
-
-How to encode characters that need encoding.
-
-=item I<qpairs>  => B<< [ qw\ () <> [] {} \ ] >>
-
-=item I<qquotes> => B<[ qw\ ! # % & * + , - . / : ; = ? ^ | ~ $ @ ` \ ]>
-
-When determining the quote character to use, go through these lists to see
-which character would work best.
-
-=back
-
-=item LValueify options
-
-=over
-
-=item I<lvalue>  => B<'substr($lvalue, 0)'>
-
-How to generate a LValue.
-
-=back
-
-=item VStringify options
-
-=over
-
-=item I<vformat> => B<'v%vd'>
-
-=item I<vsep>    => B<undef>
-
-The formatting string to use.  If I<vsep> is set, then I<vformat> should use
-the C<*> format to inidicate what I<vsep> will be:
-C<< vformat => 'v%*vd', vsep => '.' >>.
-
-=back
-
-=item Numify options
-
-=over
-
-=item I<num_sep> => B<'_'>
-
-What character to use to seperate sets of numbers.
-
-=back
-
-=item Refify options
-
-=over
-
-=item I<reference>   => B<'\\$_'>
-
-=item I<dereference> => B<< '$referent->$place' >>
-
-=item I<nested>      => B<'$referent$place'>
-
-=back
-
-=item Regexpify options
-
-=over
-
-=item I<quote3>  => B<'/'>
-
-=item I<q3>      => B<'qr'>
-
-=back
-
-=item Hashify options
-
-=over
-
-=item I<hash_ref>    => B<'{$_}'>
-
-=item I<pair>        => B<< '$key => $value' >>
-
-=item I<keysort>     => B<\&Datify::keysort>
-
-=item I<keywords>    => B<[qw(undef)]>
-
-=back
-
-=item Arrayify options
-
-=over
-
-=item I<array_ref>   => B<'[$_]'>
-
-=item I<list_sep>    => B<', '>
-
-=back
-
-=item Objectify options
-
-=over
-
-=item I<overloads>  => B<[ '""', '0+' ]>
-
-The list of overloads to check for before deconstructing the object.
-See L<overload> for more information on overloading.
-
-=item I<object>     => B<'bless($data, $class_str)'>
-
-=item I<io>         => B<'*UNKNOWN{IO}'>
-
-=back
-
-=item Codeify options
-
-=over
-
-=item I<code>    => B<'sub {...}'>
-
-=back
-
-=item Formatify options
-
-=over
-
-=item I<format>  => B<"format UNKNOWN =\n.\n">
-
-=back
-
-=back
-
-=head2 Methods
-
-=over
-
-=item C<< new( name => value, name => value, ... ) >>
-
-Create a C<Datify> object with the following options.
-
-=item C<< set( name => value, name => value, ... ) >>
-
-Change the L</Options> settings.
-When called as a class method, changes default options.
-When called as an object method, changes the settings and returns a
-new object.
-
-B<NOTE:> When called as a method on an object, this returns a new instance
-with the values set, so you will need to capture the return if you'd like to
-persist the change:
-
- $datify = $datify->set( ... );
-
-=item C<get( name, name, ... )>
-
-Get one or more existing values for one or more settings.
-If passed no names, returns all values.
-
-=item C<< varify( name => value, value, ... ) >>
-
-Returns an assignment statement for the values.  If C<name> does not begin
-with a sigil (C<$>, C<@>, or C<%>), will determine which sigil to use based
-on C<values>.
-
-Some examples:
-
-Common case, determine the type and add the correct sigil to 'foo'.
-
- Datify->varify(   foo  => $foo )
-
-Specify the type.
-
- Datify->varify( '$foo' => $foo )
-
-Handle a list: C<@foo = (1, 2, 3);>
-
- Datify->varify( '@foo' =>   1, 2, 3   )
- Datify->varify( '@foo' => [ 1, 2, 3 ] )
- Datify->varify(   foo  =>   1, 2, 3   )
- Datify->varify(   foo  => [ 1, 2, 3 ] )
-
-Handle a hash: C<< %foo = (a => 1, b => 2, c => 3); >>
-(B<Note>: Order may be rearranged.)
-
- Datify->varify( '%foo' =>   a => 1, b => 2, c => 3   )
- Datify->varify( '%foo' => { a => 1, b => 2, c => 3 } )
- Datify->varify(   foo  => { a => 1, b => 2, c => 3 } )
-
-Keep in mind that without proper hints, this would be interpretted as a list,
-not a hash:
-
- Datify->varify(   foo  =>   a => 1, b => 2, c => 3   )
- # "@foo = ('a', 1, 'b', 2, 'c', 3);"
-
-=item C<undefify>
-
-Returns the string that should be used for an undef value.
-
-=item C<booleanify( value )>
-
-Returns the string that represents the C<true> or C<false> interpretation
-of value.
-
-=item C<stringify1( value, delimiters )>
-
-Returns the string that represents value as a single-quoted string.
-The delimiters parameter is optional.
-
-=item C<stringify2( value, delimiters )>
-
-Returns the string that represents value as a double-quoted string.
-The delimiters parameter is optional.
-
-=item C<stringify( value )>
-
-Returns the string the represents value.  It will be a double-quoted string
-if it is longer than the C<longstr> option or contains control characters.
-It will be a single-quoted string unless there are single-quotes within the
-string, then it will be a double-quoted string, unless it also contains
-double-quotes within the string, then it will attempt to find the best quote
-character.
-
-=item C<numify( value )>
-
-Returns value with seperators between the hundreds and thousands,
-hundred-thousands and millions, etc.  Similarly for the fractional parts.
-
- Datify->numify(1234.5678901) # "1_234.56_789_01"
-
-=item C<scalarify( value )>
-
-Returns value as a scalar.  If value is not a reference, performs some magic
-to correctly print vstrings and numbers, otherwise assumes it's a string.
-If value is a reference, hands off to the correct function to create
-the string.
-
-Handles reference loops.
-
-=item C<lvalueify( value )>
-
-=item C<vstringify( value )>
-
-=item C<regexpify( value, delimiters )>
-
-=item C<listify( value, value, ... )>
-
-Returns value(s) as a list.
-
- Datify->listify( 1, 2, 3 ) # '1, 2, 3'
-
-=item C<arrayify( value, value, ... )>
-
-Returns value(s) as an array.
-
- Datify->arrayify( 1, 2, 3 ) # '[1, 2, 3]'
-
-=item C<keyify( value )>
-
-Returns value as a key.  If value does not need to be quoted, it will not be.
-Verifies that value is not a keyword.
-
-=item C<pairify( value, value, ... )>
-
-Returns value(s) as a pair.
-
- Datify->pairify( a => 1, b => 2 ) # 'a => 1, b => 2'
-
-=item C<hashify( value, value, ... )>
-
-Returns value(s) as a hash.
-
- Datify->hashify( a => 1, b => 2 ) # '{a => 1, b => 2}'
-
-=item C<objectify( value )>
-
-Returns value as an object.
-
- Datify->objectify( $object ) # "bless({}, 'Object')"
-
-=item C<codeify( value )>
-
-Returns a subroutine definition that is not likely to encode value.
-
- Datify->codeify( \&subroutine ) # 'sub {...}'
-
-=item C<refify( value )>
-
-Returns value as reference.
-
-=item C<formatify( value )>
-
-TODO
-
-=item C<globify( value )>
-
-TODO
-
-=back
-
 =head1 BUGS
 
 No known bugs.
@@ -1188,11 +1436,7 @@ No known bugs.
 
 =item *
 
-Handle formats.
-
-=item *
-
-Handle globs
+Handle formats better.
 
 =back
 

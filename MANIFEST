@@ -5,6 +5,7 @@ META.yml
 Makefile.PL
 README
 dist.ini
+examples/comparison.pl
 lib/Datify.pm
 t/01-basic.t
 t/02-numbers.t
