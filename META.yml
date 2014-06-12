@@ -23,4 +23,7 @@ requires:
   perl: v5.14.0
   strict: '0'
   warnings: '0'
-version: 0.14.150
+resources:
+  bugtracker: https://github.com/rkleemann/Datify/issues
+  repository: git://github.com/rkleemann/Datify.git
+version: 0.14.163
